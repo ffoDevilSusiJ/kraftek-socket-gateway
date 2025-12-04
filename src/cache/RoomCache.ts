@@ -11,13 +11,11 @@ export class RoomCache {
   async addUserToRoom(userId: string, roomId: string, socketId: string): Promise<void> {
     const key = `${this.keyPrefix}${roomId}`;
     await this.redis.hset(key, userId, socketId);
-    console.log(`✓ Added user ${userId} to room ${roomId} with socket ${socketId}`);
   }
 
   async removeUserFromRoom(userId: string, roomId: string): Promise<void> {
     const key = `${this.keyPrefix}${roomId}`;
     await this.redis.hdel(key, userId);
-    console.log(`✓ Removed user ${userId} from room ${roomId}`);
   }
 
   async getRoomUsers(roomId: string): Promise<Map<string, string>> {

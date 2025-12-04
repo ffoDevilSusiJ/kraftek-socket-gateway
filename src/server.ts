@@ -2,8 +2,9 @@ import { createServer } from 'http';
 import dotenv from 'dotenv';
 import { SocketGateway } from './gateway/SocketGateway.js';
 import { RoomCache } from './cache/RoomCache.js';
-import { MockAuthService } from './services/AuthService.js';
 import { RedisPubSub } from './redis/RedisPubSub.js';
+import { ServiceRegistry } from './registry/ServiceRegistry.js';
+import { AuthService } from './services/AuthService.js';
 
 dotenv.config();
 
@@ -20,14 +21,18 @@ const roomCache = new RoomCache({
   port: REDIS_PORT,
 });
 
-const authService = new MockAuthService();
+const authService = new AuthService("auth");
 
 const redisPubSub = new RedisPubSub({
   host: REDIS_HOST,
   port: REDIS_PORT,
 });
 
-const gateway = new SocketGateway(httpServer, roomCache, authService, redisPubSub, {
+// Найстройка маршрутизации TODO: Вынести в отдельный модуль
+const serviceRegistry = new ServiceRegistry();
+serviceRegistry.registerService('stickyNotes', 'events:stickyNotes');
+
+const gateway = new SocketGateway(httpServer, roomCache, authService, redisPubSub, serviceRegistry, {
   incomingChannel: INCOMING_CHANNEL,
   outgoingChannel: OUTGOING_CHANNEL,
 });
@@ -37,14 +42,13 @@ const startServer = async (): Promise<void> => {
     await gateway.start();
 
     httpServer.listen(PORT, () => {
-      console.log(`✓ Gateway server running on port ${PORT}`);
-      console.log(`✓ Redis: ${REDIS_HOST}:${REDIS_PORT}`);
-      console.log(`✓ Incoming channel: ${INCOMING_CHANNEL}`);
-      console.log(`✓ Outgoing channel: ${OUTGOING_CHANNEL}`);
+      console.log(`Gateway запущен на порту: ${PORT}`);
+      console.log(`Redis: ${REDIS_HOST}:${REDIS_PORT}`);
+      console.log(`Incoming channel: ${INCOMING_CHANNEL}`);
+      console.log(`Outgoing channel: ${OUTGOING_CHANNEL}`);
     });
 
     const gracefulShutdown = async () => {
-      console.log('\n⏳ Shutting down gracefully...');
       httpServer.close(async () => {
         await roomCache.disconnect();
         await redisPubSub.disconnect();
@@ -55,7 +59,7 @@ const startServer = async (): Promise<void> => {
     process.on('SIGTERM', gracefulShutdown);
     process.on('SIGINT', gracefulShutdown);
   } catch (error) {
-    console.error('✗ Failed to start server:', error);
+    console.error('Ошибка при запуске сервера:', error);
     process.exit(1);
   }
 };

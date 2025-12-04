@@ -3,6 +3,8 @@ import { Server as HTTPServer } from 'http';
 import { RoomCache } from '../cache/RoomCache.js';
 import { AuthService } from '../services/AuthService.js';
 import { RedisPubSub } from '../redis/RedisPubSub.js';
+import { ServiceRegistry } from '../registry/ServiceRegistry.js';
+import { EventRouter } from '../router/EventRouter.js';
 
 interface IGatewayEvent {
   eventType: string;
@@ -25,6 +27,8 @@ export class SocketGateway {
   private roomCache: RoomCache;
   private authService: AuthService;
   private redisPubSub: RedisPubSub;
+  private serviceRegistry: ServiceRegistry;
+  private eventRouter: EventRouter;
   private incomingChannel: string;
   private outgoingChannel: string;
 
@@ -35,6 +39,7 @@ export class SocketGateway {
     roomCache: RoomCache,
     authService: AuthService,
     redisPubSub: RedisPubSub,
+    serviceRegistry: ServiceRegistry,
     config: {
       incomingChannel: string;
       outgoingChannel: string;
@@ -50,6 +55,8 @@ export class SocketGateway {
     this.roomCache = roomCache;
     this.authService = authService;
     this.redisPubSub = redisPubSub;
+    this.serviceRegistry = serviceRegistry;
+    this.eventRouter = new EventRouter(serviceRegistry);
     this.incomingChannel = config.incomingChannel;
     this.outgoingChannel = config.outgoingChannel;
   }
@@ -61,8 +68,6 @@ export class SocketGateway {
     );
 
     this.io.on('connection', (socket: Socket) => {
-      console.log(`🔌 Client connected: ${socket.id}`);
-
       socket.on('authenticate', async (data: { token: string; roomId: string }) => {
         await this.handleAuthenticate(socket, data);
       });
@@ -78,7 +83,7 @@ export class SocketGateway {
       });
     });
 
-    console.log('✓ Socket Gateway started');
+    console.log('Socket Gateway запущен успешно!');
   }
 
   private async handleAuthenticate(
@@ -86,9 +91,7 @@ export class SocketGateway {
     data: { token: string; roomId: string }
   ): Promise<void> {
     const { token, roomId } = data;
-
-    console.log(`🔐 Authenticating socket ${socket.id} for room ${roomId}`);
-
+    // Отправка данных в auth или попытка забрать данные из кеша (также получаем userId по токену)
     const authResult = await this.authService.checkAccess(token, roomId);
 
     if (!authResult.success || !authResult.userId) {
@@ -102,8 +105,10 @@ export class SocketGateway {
 
     const userId = authResult.userId;
 
+    // Кешируем подключение, очищается при отключении сокета
     await this.roomCache.addUserToRoom(userId, roomId, socket.id);
 
+    // Маппим сокет и пользователя
     this.socketToUser.set(socket.id, { userId, roomId });
 
     socket.join(roomId);
@@ -114,7 +119,7 @@ export class SocketGateway {
       roomId,
     });
 
-    console.log(`✓ Socket ${socket.id} authenticated as ${userId} in room ${roomId}`);
+    console.log(`Сокет ${socket.id} зарегестрирован как пользовалеть: ${userId} на доске ${roomId}`);
   }
 
   private async handleDisconnect(socket: Socket): Promise<void> {
@@ -127,9 +132,7 @@ export class SocketGateway {
 
       this.socketToUser.delete(socket.id);
 
-      console.log(`🔌 Socket ${socket.id} disconnected (user: ${userId}, room: ${roomId})`);
-    } else {
-      console.log(`🔌 Socket ${socket.id} disconnected (not authenticated)`);
+      console.log(`Сокет ${socket.id} отключился (user: ${userId}, board: ${roomId})`);
     }
   }
 
@@ -150,6 +153,16 @@ export class SocketGateway {
 
     const { userId, roomId } = userInfo;
 
+    const targetChannel = this.eventRouter.routeEvent(eventType);
+
+    if (!targetChannel) {
+      socket.emit('error', {
+        code: 'INVALID_EVENT',
+        message: `Event type '${eventType}' is not valid or service is not registered. Expected format: serviceName:module:name`,
+      });
+      return;
+    }
+
     const gatewayEvent: IGatewayEvent = {
       eventType,
       userId,
@@ -159,16 +172,16 @@ export class SocketGateway {
       timestamp: Date.now(),
     };
 
-    console.log(`📤 Publishing event: ${eventType} from ${userId} to ${this.incomingChannel}`);
+    console.log(`Отправляем событие: ${eventType} от userId: ${userId} в ${targetChannel}`);
 
-    await this.redisPubSub.publish(this.incomingChannel, gatewayEvent);
+    await this.redisPubSub.publish(targetChannel, gatewayEvent);
   }
 
   private async handleBroadcastEvent(event: IBroadcastEvent): Promise<void> {
-    console.log(`📥 Received broadcast event: ${event.type}`);
+    console.log(`Получено событие ретрансляции: ${event.type}`);
 
     if (!event.recipients || event.recipients.length === 0) {
-      console.log('⚠ No recipients specified, broadcasting to all sockets in payload roomId');
+      console.log('Сервис не вернул получателей, транслируем событие всем подключенным к доске пользователям');
 
       if (event.payload && event.payload.roomId) {
         const socketIds = await this.roomCache.getSocketIdsByRoom(event.payload.roomId);
@@ -177,7 +190,7 @@ export class SocketGateway {
     }
 
     if (!event.recipients || event.recipients.length === 0) {
-      console.log('⚠ No recipients found, skipping broadcast');
+      console.log('К доске никто не подключен, удаляем событие.');
       return;
     }
 
@@ -189,7 +202,7 @@ export class SocketGateway {
       }
     });
 
-    console.log(`✓ Broadcast sent to ${event.recipients.length} recipients`);
+    console.log(`Событие транслированно: ${event.recipients.length} получателям`);
   }
 
   getIO(): SocketIOServer {
