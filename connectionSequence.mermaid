@@ -1,0 +1,106 @@
+sequenceDiagram
+    participant Client1 as Client 1 (User A)
+    participant Client2 as Client 2 (User B)
+    participant Gateway as Socket Gateway
+    participant AuthService as Auth Service
+    participant RoomCache as Redis Room Cache
+    participant SocketMap as socketToUser Map
+
+    Note over Client1,SocketMap: 1. Подключение Client 1
+    Client1->>Gateway: connect()
+    Gateway-->>Client1: connection established<br/>socketId: sock-abc123
+    Note over Gateway: Создано WebSocket<br/>соединение
+
+    Client1->>Gateway: emit('authenticate', {<br/>  token: 'token_userA',<br/>  roomId: 'room123'<br/>})
+
+    Note over Gateway: Проверка доступа<br/>через Auth Service
+    Gateway->>AuthService: POST /auth/check<br/>{<br/>  token: 'token_userA',<br/>  roomId: 'room123'<br/>}
+
+    alt Аутентификация успешна
+        AuthService-->>Gateway: {<br/>  success: true,<br/>  userId: 'userA',<br/>  roomId: 'room123'<br/>}
+
+        Note over Gateway: Сохранение в Room Cache
+        Gateway->>RoomCache: HSET room:room123<br/>userA sock-abc123
+        Note over RoomCache: room:room123<br/>{<br/>  userA: 'sock-abc123'<br/>}
+
+        Note over Gateway: Сохранение mapping<br/>socket → user
+        Gateway->>SocketMap: set(sock-abc123, {<br/>  userId: 'userA',<br/>  roomId: 'room123'<br/>})
+        Note over SocketMap: sock-abc123 → {<br/>  userId: 'userA',<br/>  roomId: 'room123'<br/>}
+
+        Note over Gateway: Присоединение к<br/>Socket.io room
+        Gateway->>Gateway: socket.join('room123')
+
+        Gateway-->>Client1: emit('authenticated', {<br/>  success: true,<br/>  userId: 'userA',<br/>  roomId: 'room123'<br/>})
+
+        Note over Client1: ✓ Подключен и<br/>аутентифицирован
+
+    else Аутентификация неудачна
+        AuthService-->>Gateway: {<br/>  success: false,<br/>  message: 'Invalid token'<br/>}
+
+        Gateway-->>Client1: emit('error', {<br/>  code: 'AUTH_FAILED',<br/>  message: 'Invalid token'<br/>})
+
+        Gateway->>Client1: disconnect()
+        Note over Client1: ✗ Отключен из-за<br/>ошибки аутентификации
+    end
+
+    Note over Client1,SocketMap: 2. Подключение Client 2
+    Client2->>Gateway: connect()
+    Gateway-->>Client2: connection established<br/>socketId: sock-def456
+
+    Client2->>Gateway: emit('authenticate', {<br/>  token: 'token_userB',<br/>  roomId: 'room123'<br/>})
+
+    Gateway->>AuthService: POST /auth/check<br/>{<br/>  token: 'token_userB',<br/>  roomId: 'room123'<br/>}
+
+    AuthService-->>Gateway: {<br/>  success: true,<br/>  userId: 'userB',<br/>  roomId: 'room123'<br/>}
+
+    Gateway->>RoomCache: HSET room:room123<br/>userB sock-def456
+    Note over RoomCache: room:room123<br/>{<br/>  userA: 'sock-abc123',<br/>  userB: 'sock-def456'<br/>}
+
+    Gateway->>SocketMap: set(sock-def456, {<br/>  userId: 'userB',<br/>  roomId: 'room123'<br/>})
+    Note over SocketMap: sock-def456 → {<br/>  userId: 'userB',<br/>  roomId: 'room123'<br/>}
+
+    Gateway->>Gateway: socket.join('room123')
+
+    Gateway-->>Client2: emit('authenticated', {<br/>  success: true,<br/>  userId: 'userB',<br/>  roomId: 'room123'<br/>})
+
+    Note over Client2: ✓ Подключен и<br/>аутентифицирован
+
+    Note over Client1,SocketMap: 3. Работа в комнате
+    Note over Client1,Client2: Оба клиента могут<br/>отправлять события<br/>(note:create, note:move, etc.)
+
+    Note over Client1,SocketMap: 4. Отключение Client 1
+    Client1->>Gateway: disconnect
+    Note over Gateway: Событие 'disconnect'<br/>срабатывает автоматически
+
+    Gateway->>SocketMap: get(sock-abc123)
+    SocketMap-->>Gateway: {<br/>  userId: 'userA',<br/>  roomId: 'room123'<br/>}
+
+    Note over Gateway: Удаление из Room Cache
+    Gateway->>RoomCache: HDEL room:room123<br/>userA
+    Note over RoomCache: room:room123<br/>{<br/>  userB: 'sock-def456'<br/>}
+
+    Note over Gateway: Очистка mapping
+    Gateway->>SocketMap: delete(sock-abc123)
+    Note over SocketMap: sock-abc123<br/>удален
+
+    Note over Client1: ✓ Отключен,<br/>удален из комнаты
+
+    Note over Client1,SocketMap: 5. Client 2 остается подключенным
+    Note over Client2: Продолжает работать<br/>в комнате room123
+
+    Note over Client1,SocketMap: 6. Отключение неаутентифицированного клиента
+    participant Client3 as Client 3 (Unknown)
+    Client3->>Gateway: connect()
+    Gateway-->>Client3: connection established<br/>socketId: sock-ghi789
+
+    Note over Client3: Клиент не отправил<br/>authenticate или<br/>отключается сразу
+
+    Client3->>Gateway: disconnect
+    Gateway->>SocketMap: get(sock-ghi789)
+    SocketMap-->>Gateway: undefined
+
+    Note over Gateway: Socket не найден<br/>в mapping - не был<br/>аутентифицирован
+
+    Gateway->>Gateway: log('Socket disconnected (not authenticated)')
+
+    Note over Client3: ✓ Отключен<br/>(без очистки Room Cache)
