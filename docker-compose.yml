@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  gateway:
+    build: .
+    container_name: kraftek-socket-gateway
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AUTH_SERVICE_URL: http://auth-service:3002
+      REDIS_INCOMING_CHANNEL: events:gateway
+      REDIS_OUTGOING_CHANNEL: events:broadcast
+    depends_on:
+      - redis
+    networks:
+      - kraftek-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: kraftek-gateway-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kraftek-network
+
+volumes:
+  redis_data:
+
+networks:
+  kraftek-network:
+    driver: bridge

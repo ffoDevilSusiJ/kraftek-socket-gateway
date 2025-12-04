@@ -1,0 +1,32 @@
+{
+  "name": "kraftek-socket-gateway",
+  "version": "1.0.0",
+  "description": "WebSocket Gateway with Auth and Room Cache management",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "keywords": [
+    "websocket",
+    "gateway",
+    "socket.io",
+    "redis",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "socket.io": "^4.7.2",
+    "ioredis": "^5.3.2",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.0"
+  }
+}
