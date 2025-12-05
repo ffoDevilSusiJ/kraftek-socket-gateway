@@ -7,14 +7,8 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
-    environment:
-      PORT: 3001
-      NODE_ENV: production
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      AUTH_SERVICE_URL: http://auth-service:3002
-      REDIS_INCOMING_CHANNEL: events:gateway
-      REDIS_OUTGOING_CHANNEL: events:broadcast
+    env_file:
+      - .env
     depends_on:
       - redis
     networks:
@@ -41,4 +35,5 @@ volumes:
 
 networks:
   kraftek-network:
+    name: kraftek-socket-gateway_kraftek-network
     driver: bridge

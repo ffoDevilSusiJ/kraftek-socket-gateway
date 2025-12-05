@@ -68,16 +68,21 @@ export class SocketGateway {
     );
 
     this.io.on('connection', (socket: Socket) => {
+      console.log(`Новое Socket.IO подключение: ${socket.id}`);
+
       socket.on('authenticate', async (data: { token: string; roomId: string }) => {
+        console.log(`Получен authenticate от ${socket.id}:`, data);
         await this.handleAuthenticate(socket, data);
       });
 
       socket.on('disconnect', async () => {
+        console.log(`Отключение: ${socket.id}`);
         await this.handleDisconnect(socket);
       });
 
       socket.onAny(async (eventType: string, payload: any) => {
         if (eventType !== 'authenticate' && eventType !== 'disconnect') {
+          console.log(`Событие ${eventType} от ${socket.id}:`, payload);
           await this.handleClientEvent(socket, eventType, payload);
         }
       });
