@@ -2,6 +2,40 @@
 
 WebSocket Gateway служит единой точкой подключения для клиентов и маршрутизирует события между сервисами
 
+## Требования
+
+- Node.js 20+
+- Redis 7
+
+## Быстрый старт (Docker)
+
+```bash
+# 1. Клонировать репозиторий
+git clone https://github.com/ffoDevilSusiJ/kraftek-socket-gateway
+cd kraftek-socket-gateway
+
+# 2. Запустить gateway с Redis
+docker-compose up -d
+```
+
+Gateway доступен: http://localhost:3001
+
+## Локальный запуск
+
+```bash
+# 1. Установить зависимости
+npm install
+
+# 2. Настроить .env
+cp .env.example .env
+
+# 3. Запустить Redis
+# (можно использовать docker-compose только для Redis)
+
+# 4. Запустить в dev режиме
+npm run dev
+```
+
 ## Архитектура
 
 ```
