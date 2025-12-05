@@ -110,6 +110,22 @@ export class SocketGateway {
 
     const userId = authResult.userId;
 
+    // Проверяем, есть ли уже подключение этого пользователя к этой комнате
+    const existingSocketId = await this.roomCache.getRoomUsers(roomId);
+    const oldSocketId = existingSocketId.get(userId);
+
+    if (oldSocketId && oldSocketId !== socket.id) {
+      const oldSocket = this.io.sockets.sockets.get(oldSocketId);
+      if (oldSocket) {
+        console.log(`Отключаем старый сокет ${oldSocketId} для пользователя ${userId} в комнате ${roomId}`);
+        oldSocket.emit('error', {
+          code: 'DUPLICATE_CONNECTION',
+          message: 'You have connected from another session',
+        });
+        oldSocket.disconnect(true);
+      }
+    }
+
     // Кешируем подключение, очищается при отключении сокета
     await this.roomCache.addUserToRoom(userId, roomId, socket.id);
 
